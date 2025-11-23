@@ -1,0 +1,155 @@
+<?php
+// --- প্রোফাইল মিউজিক প্লেয়ার (YouTube + MP3) ---
+
+// $who ভেরিয়েবলটি এই পেজে আগে থেকেই ডিফাইন করা আছে।
+// আমরা ডাটাবেস থেকে music_link এবং music_expiry আনবো।
+$music_query = mysql_query("SELECT music_link, music_expiry FROM ibwfrr_users WHERE id='".$who."'");
+$music_info = mysql_fetch_array($music_query);
+
+$music_link = $music_info['music_link'];
+$music_expiry = $music_info['music_expiry'];
+$play_music = false;
+$is_youtube = false;
+$video_id = "";
+$mp3_link = "";
+
+// চেক করা হচ্ছে মিউজিকের মেয়াদ আছে কিনা
+if (!empty($music_link) && $music_expiry > time()) {
+  $play_music = true;
+ 
+  // চেক করা হচ্ছে এটি ইউটিউব লিংক কিনা (ফরম্যাট: "youtube:VIDEO_ID")
+  if (strpos($music_link, 'youtube:') === 0) {
+    $is_youtube = true;
+    $video_id = substr($music_link, 8); // "youtube:" লেখা বাদ দিয়ে আইডি নেওয়া
+  } else {
+    // এটি একটি সাধারণ MP3 লিংক
+    $is_youtube = false;
+    $mp3_link = htmlspecialchars($music_link);
+  }
+}
+?>
+
+<?php if ($play_music): // যদি মিউজিক সেট করা থাকে এবং মেয়াদ থাকে ?>
+ 
+  <?php if ($is_youtube): // --- যদি ইউটিউব লিংক হয় --- ?>
+   
+        <div id="youtube-audio-player" style="width: 1px; height: 1px; overflow: hidden; position: absolute; left: -9999px;"></div>
+
+        <script>
+      var tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      var firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+      var player;
+      var videoId = '<?php echo $video_id; ?>';
+      var playerReady = false;
+
+      function onYouTubeIframeAPIReady() {
+        player = new YT.Player('youtube-audio-player', {
+          height: '1',
+          width: '1',
+          videoId: videoId,
+          playerVars: {
+            'autoplay': 1, // অটোপ্লে করার চেষ্টা
+            'controls': 0, // কন্ট্রোলস হাইড
+            'loop': 1,   // লুপ
+            'playlist': videoId // লুপ করার জন্য ভিডিও আইডি আবার দিতে হয়
+          },
+          events: {
+            'onReady': onPlayerReady,
+            'onStateChange': onPlayerStateChange
+          }
+        });
+      }
+
+      function onPlayerReady(event) {
+        playerReady = true;
+        // অটোপ্লে পলিসির কারণে এখানে .playVideo() কল করা নিরাপদ
+        event.target.playVideo();
+        event.target.setVolume(80); // ভলিউম ৮০%
+      }
+     
+      function onPlayerStateChange(event) {
+        // ভিডিও শেষ হলে আবার শুরু (লুপ)
+        if (event.data == YT.PlayerState.ENDED) {
+          player.playVideo();
+        }
+      }
+     
+      // অটোপ্লে ফিক্স: ব্রাউজার অটোপ্লে ব্লক করলে, ইউজার প্রথম ক্লিক করলেই প্লে হবে
+      function attemptAutoplayFix() {
+        if (playerReady && player.getPlayerState() !== YT.PlayerState.PLAYING) {
+          player.playVideo();
+        }
+      }
+     
+      // একবারই ইভেন্টটি যোগ করা হচ্ছে
+      document.body.addEventListener('click', attemptAutoplayFix, { once: true });
+      document.body.addEventListener('touchstart', attemptAutoplayFix, { once: true });
+     
+    </script>
+
+  <?php else: // --- যদি সাধারণ MP3 লিংক হয় --- ?>
+   
+    <div id='music_box' style='text-align:center; margin: 5px auto; padding: 5px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px;'>
+      <audio id='profAudio' loop preload='auto' autoplay style='position:absolute; left:-9999px;'>
+        <source src="<?php echo $mp3_link; ?>" type="audio/mpeg">
+      </audio>
+      <small id='statusMsg' style='color:#666;'>🎵 Loading Music...</small><br/>
+      <button id='playBtn' onclick='startMusic()' style='display:none; background: linear-gradient(to right, #ff416c, #ff4b2b); color:white; border:none; padding:5px 15px; border-radius:20px; cursor:pointer; font-size:12px; margin-top:5px;'>▶ Play Music</button>
+     
+      <script>
+        var audio = document.getElementById('profAudio');
+        var btn = document.getElementById('playBtn');
+        var msg = document.getElementById('statusMsg');
+        var currentUrl = '<?php echo $mp3_link; ?>';
+
+        try {
+          var savedUrl = localStorage.getItem('last_music_url');
+          var savedTime = localStorage.getItem('last_music_time');
+          if (savedUrl === currentUrl && savedTime > 0) {
+            audio.currentTime = savedTime;
+          }
+        } catch(e) {}
+
+        audio.addEventListener('timeupdate', function() {
+          try {
+            localStorage.setItem('last_music_url', currentUrl);
+            localStorage.setItem('last_music_time', audio.currentTime);
+          } catch(e) {}
+          if(!audio.paused) {
+            msg.innerHTML = '🎵 Playing...';
+            btn.style.display = 'none';
+          }
+        });
+
+        function startMusic() {
+          audio.play();
+          btn.style.display = 'none';
+          msg.innerHTML = '🎵 Playing...';
+        }
+
+        window.addEventListener('load', function() {
+          var promise = audio.play();
+          if (promise !== undefined) {
+            promise.catch(error => {
+              btn.style.display = 'inline-block';
+              msg.innerHTML = 'Click play button ⤵';
+            });
+          }
+        });
+       
+        document.body.addEventListener('click', function() {
+          if(audio.paused) {
+            audio.play();
+          }
+        }, { once: true });
+      </script>
+    </div>
+   
+  <?php endif; ?>
+<?php endif; ?>
+
+<?php
+// --- নতুন কোড এখানে শেষ ---
